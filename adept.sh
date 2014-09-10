@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+
 ###############################################################################
 #
 # Bash script to automate adaptive JPEG compression using common CLI tools
@@ -63,6 +64,19 @@
 #
 ###############################################################################
 
+HELP="Adept is a Bash script to automate adaptive JPEG compression using common CLI tools.
+
+USAGE:
+   adept.sh path/to/file.jpg [options]
+
+OPTIONS:
+   -h           Displays this help message.
+   -q 0..100    Compression rate of areas considered as important, default value is 'inherit'.
+   -Q 0..100    Compression rate of areas deemed suitable for high compression, default is 69.
+   -s suffix    This will append 'suffix' to filenames. Default value is '_adept_compress'.
+   -t integer   tile size, accepted values are 8,16,32,64,128 and 256. The smaller the value, the better results 
+                but might take signifficantly more time to process. The default value is 'autodetect'.
+"
 
 
 ###############################################################################
@@ -81,14 +95,54 @@ HIGHCOMPRESSIONRATE="69"
 # If deliberatly set empty (''), the input JPG will be replaced with the new compressed JPG
 OUTPUTFILESUFFIX="_adept_compress"
 
+# Square dimensions for all temporary tiles. Tile size heavily influences compression efficiency at the cost of runtime performance
+# E.g. a tile size of 8 yields maximum compression results while taking several minutes of runtime
+# If you chose to manually adjust tile size, only use multiples of 8 (8/16/32/64/128/256)
+# Default: autodetect
+TILESIZE="autodetect"
+
+
+
+###############################################################################
+# READ COMMAND LINE USER PARAMETERS
+###############################################################################
+
+if [[ "$1" == "-h" ]]; then
+    echo "${HELP}";
+    exit 0
+else
+
+FILE="$1"
+
+OPTIND=2
+
+  while getopts "q:Q:s:t:h" opt; do
+    case "$opt" in
+    q)  DEFAULTCOMPRESSIONRATE=$OPTARG
+        ;;
+    Q)  HIGHCOMPRESSIONRATE=$OPTARG
+        ;;
+    s)  OUTPUTFILESUFFIX=$OPTARG
+        ;;
+    t)	TILESIZE=$OPTARG
+	;;
+    h)  echo "${HELP}"
+	exit 0
+	;;
+    \?)	echo "Invalid option: -$OPTARG" >&2
+	exit 1
+	;;
+    :)	echo "Option -$OPTARG requires an argument." >&2
+	exit 1
+	;;
+    esac
+  done
+fi
 
 
 ###############################################################################
 # RUNTIME VARIABLES (usually do not require tuning by user)
 ###############################################################################
-
-# Accept the jpg filename as a parameter
-FILE="$1"
 
 # Retrieve clean filename without extension
 CLEANFILENAME=${FILE%.jp*g}
@@ -115,15 +169,9 @@ if [ ! -d "$TILESTORAGEPATH" ]; then
 	TILESTORAGEPATH="/tmp/"
 fi
 
-# Square dimensions for all temporary tiles. Tile size heavily influences compression efficiency at the cost of runtime performance
-# E.g. a tile size of 8 yields maximum compression results while taking several minutes of runtime
-# If you chose to manually adjust tile size, only use multiples of 8 (8/16/32/64/128/256)
-# Default: autodetect
-TILESIZE="autodetect"
-
 # Set locales to C (raw uninterpreted byte sequence)
 # to avoid Illegal byte sequence errors and invalid number errors
-export LANG=C LC_NUMERIC=C LC_COLLATE=C
+export LANG=C LC_NUMERIC=C LC_COLLATE=C LC_ALL=C
 
 
 
@@ -144,11 +192,12 @@ prepwork () {
 main () {
 	find_image_dimension IMAGEWIDTH "${FILE}" 'w'
 	find_image_dimension IMAGEHEIGHT "${FILE}" 'h'
+	calculate_tmp_prefix TMPPREFIX "${FILE}"
 	optimize_tile_size TILESIZE ${TILESIZE} ${IMAGEWIDTH} ${IMAGEHEIGHT}
 	calculate_tile_count TILEROWS ${IMAGEHEIGHT} ${TILESIZE}
 	calculate_tile_count TILECOLUMNS ${IMAGEWIDTH} ${TILESIZE}
 	optimize_salient_regions_amount BLACKWHITETHRESHOLD "${FILE}"
-	${SALIENCYDETECTOR_COMMAND} -q -L0 -U${BLACKWHITETHRESHOLD} "${FILE}" "${TILESTORAGEPATH}${CLEANFILENAME##*/}_saliency_bw.png"
+	${SALIENCYDETECTOR_COMMAND} -q -L0 -U${BLACKWHITETHRESHOLD} "${FILE}" "${TILESTORAGEPATH}${TMPPREFIX}_${CLEANFILENAME##*/}_saliency_bw.png"
 	slice_image_to_ram "${FILE}" ${TILESIZE} ${TILESTORAGEPATH}
 	estimate_content_complexity_and_compress
 	reassemble_tiles_into_final_image
@@ -224,6 +273,20 @@ function find_image_dimension () {
 	# Return the result
 	eval $__result="'${__imagedimension}'"
 }
+
+# Calculates prefix used to give tmp files unique names
+# At the moment we are using simply the process id, but 
+# perhaps something more sophisticated should be used,
+# like 'date +%N' or 'md5sum($__filename)'
+function calculate_tmp_prefix () {
+        # Define local variables to work with
+        local __result=$1
+        local __filename=$2
+        local __prefix="$$"
+        # Return the result
+        eval $__result="'${__prefix}'"
+}
+
 
 # Tile size is the no.1 performance bottleneck for Adept, so it is important we pick an optimal tile size for the input image dimensions
 # Also, the number of tiles to be recombined affects compression efficiency and salient areas within an image tend to have similar dimensional
@@ -321,7 +384,7 @@ function slice_image_to_ram () {
 	if [ "$DEFAULTCOMPRESSIONRATE" == "inherit" ] ; then
 		DEFAULTCOMPRESSIONRATE=$(${IDENTIFY_COMMAND} -format "%Q" ${__filetoprocess})
 	fi
-	${CONVERT_COMMAND} "$__filetoprocess" -strip -quality "${DEFAULTCOMPRESSIONRATE}" -define jpeg:dct-method=float -crop "${__currenttilesize}"x"${__currenttilesize}" +repage +adjoin "${__currenttilestoragepath}tile_tmp_%06d_${CLEANFILENAME##*/}.${FILEEXTENSION}"
+	${CONVERT_COMMAND} "$__filetoprocess" -strip -quality "${DEFAULTCOMPRESSIONRATE}" -define jpeg:dct-method=float -crop "${__currenttilesize}"x"${__currenttilesize}" +repage +adjoin "${__currenttilestoragepath}${TMPPREFIX}_tile_tmp_%06d_${CLEANFILENAME##*/}.${FILEEXTENSION}"
 }
 
 # For each tile, test if it is suitable for higher compression and if so, proceed
@@ -354,12 +417,12 @@ function estimate_content_complexity_and_compress () {
 			# Run identify on the 2-color limited palette PNG8 to retrieve the mean for the gray channel
 			# In this case we are using coordinates and dynamic tile sizes according to the walker logic we have created in order to dynamically view a specific image area without creating actual tiles for it
 			# The result will be a decimal number (or zero) by which we can judge the visible object complexity in the current tile
-			local __currentbwmedian=$(identify -size "${IMAGEWIDTH}"x"${IMAGEHEIGHT}" -channel Gray -format "%[fx:255*mean]" "${TILESTORAGEPATH}${CLEANFILENAME##*/}_saliency_bw.png["${__currenttilewidth}"x"${__currenttileheight}"+$(echo $((${x}*${__currenttilewidth})))+$(echo $((${y}*${__currenttileheight})))]")
+			local __currentbwmedian=$(identify -size "${IMAGEWIDTH}"x"${IMAGEHEIGHT}" -channel Gray -format "%[fx:255*mean]" "${TILESTORAGEPATH}${TMPPREFIX}_${CLEANFILENAME##*/}_saliency_bw.png["${__currenttilewidth}"x"${__currenttileheight}"+$(echo $((${x}*${__currenttilewidth})))+$(echo $((${y}*${__currenttileheight})))]")
 			# If the gray channel median is below a defined threshold, the visible area in the current tile is very likely simple & rather monotonous and can safely be exposed to a higher compression rate
 			# Untouched JPGs simply stay at the defined default quality setting ($DEFAULTCOMPRESSIONRATE)
 			if (( $(echo "$__currentbwmedian < 0.825" | bc) )); then
 				# We experimented with blurring/smoothing of tiles here to enhance JPEG compression, but results were insignificant
-				${JPEGOPTIM_COMMAND} --max=${HIGHCOMPRESSIONRATE} --strip-all --strip-iptc --strip-icc "${TILESTORAGEPATH}"tile_tmp_"${__currenttilecount}"_"${CLEANFILENAME##*/}"."${FILEEXTENSION}" >/dev/null 2>/dev/null
+				${JPEGOPTIM_COMMAND} --max=${HIGHCOMPRESSIONRATE} --strip-all --strip-iptc --strip-icc "${TILESTORAGEPATH}"${TMPPREFIX}_tile_tmp_"${__currenttilecount}"_"${CLEANFILENAME##*/}"."${FILEEXTENSION}" >/dev/null 2>/dev/null
 			fi
 		done
 	done
@@ -386,16 +449,16 @@ function calculate_tile_count () {
 # Now that we know the number of rows+columns, we use montage to recombine the now partially compressed tiles into a new coherant JPEG image
 function reassemble_tiles_into_final_image () {
 	# Use montage to reassemble the individual, partially optimized tiles into a new consistent JPEG image
-	${MONTAGE_COMMAND} -quiet -strip -quality "${DEFAULTCOMPRESSIONRATE}" -mode concatenate -tile "${TILECOLUMNS}x${TILEROWS}" $(find "${TILESTORAGEPATH}" -maxdepth 1 -type f -name "tile_tmp_*_${CLEANFILENAME##*/}.${FILEEXTENSION}" | sort) "${CLEANPATH}${CLEANFILENAME##*/}${OUTPUTFILESUFFIX}".${FILEEXTENSION} >/dev/null 2>/dev/null
+	${MONTAGE_COMMAND} -quiet -strip -quality "${DEFAULTCOMPRESSIONRATE}" -mode concatenate -tile "${TILECOLUMNS}x${TILEROWS}" $(find "${TILESTORAGEPATH}" -maxdepth 1 -type f -name "${TMPPREFIX}_tile_tmp_*_${CLEANFILENAME##*/}.${FILEEXTENSION}" | sort) "${CLEANPATH}${CLEANFILENAME##*/}${OUTPUTFILESUFFIX}".${FILEEXTENSION} >/dev/null 2>/dev/null
 
 	# During montage reassembly, the resulting image received bytes of padding due to the way the JPEG compression algorithm works on tiles not sized as a multiple of 8
 	# So we run jpegrescan on the final image to losslessly remove this padding and make the output JPG progressive
 	${JPEGRESCAN_COMMAND} -q -i "${CLEANPATH}${CLEANFILENAME##*/}${OUTPUTFILESUFFIX}".${FILEEXTENSION} "${CLEANPATH}${CLEANFILENAME##*/}${OUTPUTFILESUFFIX}".${FILEEXTENSION}
 
 	# Cleanup temporary files
-	rm ${TILESTORAGEPATH}${CLEANFILENAME##*/}_saliency_bw.png
+	rm ${TILESTORAGEPATH}${TMPPREFIX}_${CLEANFILENAME##*/}_saliency_bw.png
 	# We are using find to circumvent issues on Kernel based shell limitations when iterating over a large number of files with rm
-	find "${TILESTORAGEPATH}" -maxdepth 1 -type f -name "tile_tmp_*_${CLEANFILENAME##*/}.${FILEEXTENSION}" -exec rm {} \;
+	find "${TILESTORAGEPATH}" -maxdepth 1 -type f -name "${TMPPREFIX}_tile_tmp_*_${CLEANFILENAME##*/}.${FILEEXTENSION}" -exec rm {} \;
 }
 
 # Initiate preparatory checks
