@@ -172,7 +172,9 @@ if [ -z OUTPUTDIRECTORY ]; then
   OUTPUTDIRECTORY="$CLEANPATH"
 else
   # Make sure the path has a trailing slash
-  OUTPUTDIRECTORY="${OUTPUTDIRECTORY%/*}/"
+  if [[ "${OUTPUTDIRECTORY:${#OUTPUTDIRECTORY}-1}" != "/" ]]; then
+    OUTPUTDIRECTORY="$OUTPUTDIRECTORY/"
+  fi
 fi
 
 # Storage location for all temporary files during runtime
