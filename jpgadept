@@ -71,6 +71,7 @@ USAGE:
 
 OPTIONS:
    -h           Displays this help message.
+   -o dest      Destination directory for file output. Default is current directory.
    -q 0..100    Compression rate of areas considered as important, default value is 'inherit'.
    -Q 0..100    Compression rate of areas deemed suitable for high compression, default is 69.
    -s suffix    This will append 'suffix' to filenames. Default value is '_adept_compress'.
@@ -82,6 +83,10 @@ OPTIONS:
 ###############################################################################
 # USER CONFIGURABLE PARAMETERS
 ###############################################################################
+
+# Output directory
+# Default: None, use CLEANPATH
+OUTPUTDIRECTORY=""
 
 # Default JPG quality setting, either inherited or defined as an integer of 0-100
 # Default: inherit
@@ -108,16 +113,16 @@ TILESIZE="autodetect"
 ###############################################################################
 
 if [[ "$1" == "-h" ]]; then
-    echo "${HELP}";
-    exit 0
+  echo "${HELP}";
+  exit 0
 else
+	FILE="$1"
+	OPTIND=2
 
-FILE="$1"
-
-OPTIND=2
-
-  while getopts "q:Q:s:t:h" opt; do
+  while getopts "o:q:Q:s:t:h" opt; do
     case "$opt" in
+    o)  OUTPUTDIRECTORY=$OPTARG
+        ;;
     q)  DEFAULTCOMPRESSIONRATE=$OPTARG
         ;;
     Q)  HIGHCOMPRESSIONRATE=$OPTARG
@@ -125,16 +130,16 @@ OPTIND=2
     s)  OUTPUTFILESUFFIX=$OPTARG
         ;;
     t)	TILESIZE=$OPTARG
-	;;
-    h)  echo "${HELP}"
-	exit 0
-	;;
-    \?)	echo "Invalid option: -$OPTARG" >&2
-	exit 1
-	;;
-    :)	echo "Option -$OPTARG requires an argument." >&2
-	exit 1
-	;;
+		;;
+	    h)  echo "${HELP}"
+		exit 0
+		;;
+	    \?)	echo "Invalid option: -$OPTARG" >&2
+		exit 1
+		;;
+	    :)	echo "Option -$OPTARG requires an argument." >&2
+		exit 1
+		;;
     esac
   done
 fi
@@ -150,14 +155,20 @@ CLEANFILENAME=${FILE%.jp*g}
 # Retrieve only the file extension
 FILEEXTENSION=${FILE##*.}
 
-# Retrieve clean path directory without filename
-CLEANPATH="${FILE%/*}"
-# If the JPEG is in the same direcctory as Adept, empty the path variable
-# Or if it is set, make sure the path has a trailing slash
-if [ "$CLEANPATH" == "$FILE" ]; then
-	CLEANPATH=""
+if [ -z OUTPUTDIRECTORY ]; then
+	# Retrieve clean path directory without filename
+	CLEANPATH="${FILE%/*}"
+	# If the JPEG is in the same direcctory as Adept, empty the path variable
+	# Or if it is set, make sure the path has a trailing slash
+	if [ "$CLEANPATH" == "$FILE" ]; then
+		CLEANPATH=""
+	else
+		CLEANPATH="$CLEANPATH/"
+	fi
+	OUTPUTDIRECTORY="$CLEANPATH"
 else
-	CLEANPATH="$CLEANPATH/"
+	# Make sure the path has a trailing slash
+	OUTPUTDIRECTORY="${OUTPUTDIRECTORY%/*}/"
 fi
 
 # Storage location for all temporary files during runtime
@@ -449,11 +460,11 @@ function calculate_tile_count () {
 # Now that we know the number of rows+columns, we use montage to recombine the now partially compressed tiles into a new coherant JPEG image
 function reassemble_tiles_into_final_image () {
 	# Use montage to reassemble the individual, partially optimized tiles into a new consistent JPEG image
-	${MONTAGE_COMMAND} -quiet -strip -quality "${DEFAULTCOMPRESSIONRATE}" -mode concatenate -tile "${TILECOLUMNS}x${TILEROWS}" $(find "${TILESTORAGEPATH}" -maxdepth 1 -type f -name "${TMPPREFIX}_tile_tmp_*_${CLEANFILENAME##*/}.${FILEEXTENSION}" | sort) "${CLEANPATH}${CLEANFILENAME##*/}${OUTPUTFILESUFFIX}".${FILEEXTENSION} >/dev/null 2>/dev/null
+	${MONTAGE_COMMAND} -quiet -strip -quality "${DEFAULTCOMPRESSIONRATE}" -mode concatenate -tile "${TILECOLUMNS}x${TILEROWS}" $(find "${TILESTORAGEPATH}" -maxdepth 1 -type f -name "${TMPPREFIX}_tile_tmp_*_${CLEANFILENAME##*/}.${FILEEXTENSION}" | sort) "${OUTPUTDIRECTORY}${CLEANFILENAME##*/}${OUTPUTFILESUFFIX}".${FILEEXTENSION} >/dev/null 2>/dev/null
 
 	# During montage reassembly, the resulting image received bytes of padding due to the way the JPEG compression algorithm works on tiles not sized as a multiple of 8
 	# So we run jpegrescan on the final image to losslessly remove this padding and make the output JPG progressive
-	${JPEGRESCAN_COMMAND} -q -i "${CLEANPATH}${CLEANFILENAME##*/}${OUTPUTFILESUFFIX}".${FILEEXTENSION} "${CLEANPATH}${CLEANFILENAME##*/}${OUTPUTFILESUFFIX}".${FILEEXTENSION}
+	${JPEGRESCAN_COMMAND} -q -i "${OUTPUTDIRECTORY}${CLEANFILENAME##*/}${OUTPUTFILESUFFIX}".${FILEEXTENSION} "${OUTPUTDIRECTORY}${CLEANFILENAME##*/}${OUTPUTFILESUFFIX}".${FILEEXTENSION}
 
 	# Cleanup temporary files
 	rm ${TILESTORAGEPATH}${TMPPREFIX}_${CLEANFILENAME##*/}_saliency_bw.png
