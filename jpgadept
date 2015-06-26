@@ -155,16 +155,20 @@ CLEANFILENAME=${FILE%.jp*g}
 # Retrieve only the file extension
 FILEEXTENSION=${FILE##*.}
 
+# Retrieve clean path directory without filename
+CLEANPATH="${FILE%/*}"
+# If the JPEG is in the same direcctory as Adept, empty the path variable
+# Or if it is set, make sure the path has a trailing slash
+if [ "$CLEANPATH" == "$FILE" ]; then
+	CLEANPATH=""
+else
+	CLEANPATH="$CLEANPATH/"
+fi
+
+# Retrieve only filename and extension
+FILENAME="${FILE:`expr match "$FILE" "$CLEANPATH/"`}"
+
 if [ -z OUTPUTDIRECTORY ]; then
-	# Retrieve clean path directory without filename
-	CLEANPATH="${FILE%/*}"
-	# If the JPEG is in the same direcctory as Adept, empty the path variable
-	# Or if it is set, make sure the path has a trailing slash
-	if [ "$CLEANPATH" == "$FILE" ]; then
-		CLEANPATH=""
-	else
-		CLEANPATH="$CLEANPATH/"
-	fi
 	OUTPUTDIRECTORY="$CLEANPATH"
 else
 	# Make sure the path has a trailing slash
@@ -201,17 +205,29 @@ prepwork () {
 }
 
 main () {
+  printf "Compressing $FILENAME \t##                       (8%%)\r"
 	find_image_dimension IMAGEWIDTH "${FILE}" 'w'
+  printf "Compressing $FILENAME \t####                     (16%%)\r"
 	find_image_dimension IMAGEHEIGHT "${FILE}" 'h'
+  printf "Compressing $FILENAME \t######                   (25%%)\r"
 	calculate_tmp_prefix TMPPREFIX "${FILE}"
+  printf "Compressing $FILENAME \t########                 (33%%)\r"
 	optimize_tile_size TILESIZE ${TILESIZE} ${IMAGEWIDTH} ${IMAGEHEIGHT}
+  printf "Compressing $FILENAME \t##########               (41%%)\r"
 	calculate_tile_count TILEROWS ${IMAGEHEIGHT} ${TILESIZE}
+  printf "Compressing $FILENAME \t############             (50%%)\r"
 	calculate_tile_count TILECOLUMNS ${IMAGEWIDTH} ${TILESIZE}
+  printf "Compressing $FILENAME \t##############           (58%%)\r"
 	optimize_salient_regions_amount BLACKWHITETHRESHOLD "${FILE}"
+  printf "Compressing $FILENAME \t################         (66%%)\r"
 	${SALIENCYDETECTOR_COMMAND} -q -L0 -U${BLACKWHITETHRESHOLD} "${FILE}" "${TILESTORAGEPATH}${TMPPREFIX}_${CLEANFILENAME##*/}_saliency_bw.png"
+  printf "Compressing $FILENAME \t##################       (75%%)\r"
 	slice_image_to_ram "${FILE}" ${TILESIZE} ${TILESTORAGEPATH}
+  printf "Compressing $FILENAME \t####################     (83%%)\r"
 	estimate_content_complexity_and_compress
+  printf "Compressing $FILENAME \t######################   (91%%)\r"
 	reassemble_tiles_into_final_image
+  printf "Compressing $FILENAME \t######################## (100%%)\r\n"
 }
 
 
