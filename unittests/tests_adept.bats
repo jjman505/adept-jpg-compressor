@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-source "${BATS_TEST_DIRNAME}/../adept.sh" >/dev/null 2>/dev/null
+source "${BATS_TEST_DIRNAME}/../jpgadept" >/dev/null 2>/dev/null
 
 @test "Find Tools" {
   run find_tool IDENTIFY_COMMAND identify

@@ -5,7 +5,7 @@
 #
 # Bash script to automate adaptive JPEG compression using common CLI tools
 #
-# Usage: bash adept.sh /path/to/image.jpg
+# Usage: bash jpgadept /path/to/image.jpg
 #
 ###############################################################################
 #
@@ -20,7 +20,7 @@
 # it as a single integer indicator to judge its perceivable complexity.
 #
 # Areas with low complexity contents are then exposed to heavier compression.
-# At reassemlby, this leads to savings in image bytesize while maintaining
+# At reassembly, this leads to savings in image bytesize while maintaining
 # good visual quality because no compression artefacts occur in areas of
 # high-complexity or sharp contrasts.
 #
@@ -64,17 +64,17 @@
 #
 ###############################################################################
 
-HELP="Adept is a Bash script to automate adaptive JPEG compression using common CLI tools.
+HELP="jpgadept is a Bash script to automate adaptive JPEG compression using common CLI tools.
 
 USAGE:
-   adept.sh path/to/file.jpg [options]
+   jpgadept path/to/file.jpg [options]
 
 OPTIONS:
    -h           Displays this help message.
    -q 0..100    Compression rate of areas considered as important, default value is 'inherit'.
    -Q 0..100    Compression rate of areas deemed suitable for high compression, default is 69.
    -s suffix    This will append 'suffix' to filenames. Default value is '_adept_compress'.
-   -t integer   tile size, accepted values are 8,16,32,64,128 and 256. The smaller the value, the better results 
+   -t integer   tile size, accepted values are 8,16,32,64,128 and 256. The smaller the value, the better results
                 but might take signifficantly more time to process. The default value is 'autodetect'.
 "
 
@@ -275,7 +275,7 @@ function find_image_dimension () {
 }
 
 # Calculates prefix used to give tmp files unique names
-# At the moment we are using simply the process id, but 
+# At the moment we are using simply the process id, but
 # perhaps something more sophisticated should be used,
 # like 'date +%N' or 'md5sum($__filename)'
 function calculate_tmp_prefix () {
